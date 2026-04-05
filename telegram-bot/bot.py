@@ -106,7 +106,21 @@ def save_user_card(user_id: int, card_index: int):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup)
+
+    mage_image = os.path.join(os.path.dirname(__file__), "images", "the Forest Wizard.png")
+    if os.path.exists(mage_image):
+        img = Image.open(mage_image).convert("RGB")
+        img.thumbnail((1280, 1280), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        await update.message.reply_photo(
+            photo=buf,
+            caption=WELCOME_TEXT,
+            reply_markup=reply_markup,
+        )
+    else:
+        await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup)
 
 
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
