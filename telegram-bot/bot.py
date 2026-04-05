@@ -96,6 +96,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup)
 
 
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    await update.message.reply_text(f"Твой Telegram ID: `{user_id}`", parse_mode="Markdown")
+
+
 async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -134,6 +139,7 @@ def main():
 
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CallbackQueryHandler(draw_card_callback, pattern="^draw_card$"))
 
     logger.info("Bot is starting...")
