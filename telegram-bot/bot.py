@@ -140,7 +140,7 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     image_path = os.path.join(os.path.dirname(__file__), card["image"])
     if os.path.exists(image_path):
-        img = Image.open(image_path)
+        img = Image.open(image_path).convert("RGB")
         img.thumbnail((1280, 1280), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
