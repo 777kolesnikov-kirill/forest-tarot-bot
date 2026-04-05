@@ -139,13 +139,18 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     image_path = os.path.join(os.path.dirname(__file__), card["image"])
     if os.path.exists(image_path):
         with open(image_path, "rb") as photo:
-            await query.message.reply_photo(
+            await context.bot.send_photo(
+                chat_id=query.message.chat_id,
                 photo=photo,
                 caption=card_text,
                 parse_mode="Markdown",
             )
     else:
-        await query.message.reply_text(card_text, parse_mode="Markdown")
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=card_text,
+            parse_mode="Markdown",
+        )
 
 
 def main():
