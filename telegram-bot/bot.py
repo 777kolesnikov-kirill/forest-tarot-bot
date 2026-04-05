@@ -1,8 +1,11 @@
+import io
 import os
 import random
 import sqlite3
 import logging
 from datetime import date
+
+from PIL import Image
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -132,20 +135,25 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     card_index = random.randint(0, len(CARDS) - 1)
     card = CARDS[card_index]
-    save_user_card(user_id, card_index)
 
     card_text = f"*{card['name']}*\n\n{card['description']}"
 
     image_path = os.path.join(os.path.dirname(__file__), card["image"])
     if os.path.exists(image_path):
-        with open(image_path, "rb") as photo:
-            await query.message.reply_photo(
-                photo=photo,
-                caption=card_text,
-                parse_mode="Markdown",
-            )
+        img = Image.open(image_path)
+        img.thumbnail((1280, 1280), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        buf.seek(0)
+        await query.message.reply_photo(
+            photo=buf,
+            caption=card_text,
+            parse_mode="Markdown",
+        )
     else:
         await query.message.reply_text(card_text, parse_mode="Markdown")
+
+    save_user_card(user_id, card_index)
 
 
 def main():
