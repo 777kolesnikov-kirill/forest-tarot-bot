@@ -4,6 +4,7 @@ import random
 import sqlite3
 import logging
 from datetime import date, timedelta
+from urllib.parse import quote
 
 from PIL import Image
 
@@ -240,6 +241,19 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     card_text = f"*{card['name']}*\n\n{card['description']}"
 
+    share_text = (
+        f"Сегодня Лесной Маг дал мне карту «{card['name']}» 🌿 "
+        f"Получи своё послание от леса: t.me/lesnaya_koloda_mudrosti_bot"
+    )
+    share_url = (
+        "https://t.me/share/url"
+        f"?url=https%3A%2F%2Ft.me%2Flesnaya_koloda_mudrosti_bot"
+        f"&text={quote(share_text)}"
+    )
+    share_keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🌿 Поделиться с другом", url=share_url)]]
+    )
+
     image_path = os.path.join(os.path.dirname(__file__), card["image"])
     if os.path.exists(image_path):
         img = Image.open(image_path).convert("RGB")
@@ -251,9 +265,14 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             photo=buf,
             caption=card_text,
             parse_mode="Markdown",
+            reply_markup=share_keyboard,
         )
     else:
-        await query.message.reply_text(card_text, parse_mode="Markdown")
+        await query.message.reply_text(
+            card_text,
+            parse_mode="Markdown",
+            reply_markup=share_keyboard,
+        )
 
     save_user_card(user_id, card_index)
 
