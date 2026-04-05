@@ -3,7 +3,7 @@ import os
 import random
 import sqlite3
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from PIL import Image
 
@@ -53,6 +53,19 @@ def init_db():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS draw_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            draw_date TEXT NOT NULL,
+            card_index INTEGER NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_draw_date ON draw_history (draw_date)"
+    )
     conn.commit()
     conn.close()
 
@@ -89,6 +102,7 @@ def delete_user_record(user_id: int):
 
 
 def save_user_card(user_id: int, card_index: int):
+    today = get_today_str()
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
@@ -97,10 +111,57 @@ def save_user_card(user_id: int, card_index: int):
         VALUES (?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET last_date = excluded.last_date, card_index = excluded.card_index
         """,
-        (user_id, get_today_str(), card_index),
+        (user_id, today, card_index),
+    )
+    cursor.execute(
+        "INSERT INTO draw_history (user_id, draw_date, card_index) VALUES (?, ?, ?)",
+        (user_id, today, card_index),
     )
     conn.commit()
     conn.close()
+
+
+def get_stats() -> dict:
+    today = date.today()
+    today_str = today.isoformat()
+
+    week_start = today - timedelta(days=today.weekday())
+    week_days = [(week_start + timedelta(days=i)) for i in range(7)]
+
+    month_start = today.replace(day=1).isoformat()
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM draw_history WHERE draw_date = ?", (today_str,)
+    )
+    today_count = cursor.fetchone()[0]
+
+    week_counts = {}
+    for d in week_days:
+        cursor.execute(
+            "SELECT COUNT(*) FROM draw_history WHERE draw_date = ?", (d.isoformat(),)
+        )
+        week_counts[d] = cursor.fetchone()[0]
+
+    cursor.execute(
+        "SELECT COUNT(*) FROM draw_history WHERE draw_date >= ?", (month_start,)
+    )
+    month_count = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(DISTINCT user_id) FROM draw_history")
+    unique_users = cursor.fetchone()[0]
+
+    conn.close()
+
+    return {
+        "today": today_count,
+        "week": week_counts,
+        "month": month_count,
+        "unique_users": unique_users,
+        "today_date": today,
+    }
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -126,6 +187,33 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await update.message.reply_text(f"Твой Telegram ID: `{user_id}`", parse_mode="Markdown")
+
+
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("У тебя нет доступа к этой команде.")
+        return
+
+    s = get_stats()
+
+    day_names = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"}
+    today = s["today_date"]
+
+    week_lines = []
+    for d, count in s["week"].items():
+        marker = " ◀ сегодня" if d == today else ""
+        week_lines.append(f"  {day_names[d.weekday()]} {d.strftime('%d.%m')}: {count}{marker}")
+    week_text = "\n".join(week_lines)
+
+    text = (
+        f"📊 *Статистика Лесного Мага*\n\n"
+        f"📅 *Сегодня* ({today.strftime('%d.%m.%Y')}): {s['today']} карт\n\n"
+        f"📆 *Эта неделя:*\n{week_text}\n\n"
+        f"🗓 *Этот месяц:* {s['month']} карт\n\n"
+        f"👥 *Всего уникальных пользователей:* {s['unique_users']}"
+    )
+
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -180,6 +268,7 @@ def main():
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("myid", myid))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CallbackQueryHandler(draw_card_callback, pattern="^draw_card$"))
 
