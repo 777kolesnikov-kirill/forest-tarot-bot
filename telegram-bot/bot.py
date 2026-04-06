@@ -38,7 +38,9 @@ WELCOME_TEXT = (
     "Твоя карта уже ждёт. Ты готов?"
 )
 
-ALREADY_GOT_TEXT = "Ты уже получил своё послание сегодня. Лес заговорит снова завтра. 🌿"
+ALREADY_GOT_TEXT = (
+    "Ты уже получил своё послание сегодня. Лес заговорит снова завтра. 🌿"
+)
 
 BUTTON_TEXT = "✨ Вытянуть карту"
 
@@ -69,14 +71,14 @@ def build_reminder_time_keyboard() -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton("🚫 Нет, спасибо", callback_data="reminder_no")])
     return InlineKeyboardMarkup(rows)
 
+
 REMINDER_TEXT = (
-    "🌿 Лесной Маг зовёт тебя...\n"
-    "Новая карта дня уже ждёт.\n"
-    "Загляни в лес 🍃"
+    "🌿 Лесной Маг зовёт тебя...\nНовая карта дня уже ждёт.\nЗагляни в лес 🍃"
 )
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
+
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -207,7 +209,9 @@ def get_user_reminder(user_id: int):
     return row
 
 
-def get_users_for_slot(slot_time: str, include_no_preference: bool, today_str: str) -> list:
+def get_users_for_slot(
+    slot_time: str, include_no_preference: bool, today_str: str
+) -> list:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     if include_no_preference:
@@ -217,13 +221,14 @@ def get_users_for_slot(slot_time: str, include_no_preference: bool, today_str: s
             FROM draw_history dh
             LEFT JOIN reminders r ON dh.user_id = r.user_id
             WHERE (
-                (r.enabled = 1 AND r.reminder_time = ?)
-                OR (r.user_id IS NULL)
-                OR (r.enabled = 0)
-            )
-            AND COALESCE(r.last_reminded, '') != ?
+         (r.enabled = 1 AND r.reminder_time = ?)
+         OR (r.user_id IS NULL)
+         OR (r.enabled = 1 AND r.reminder_time IS NULL)
+)
+AND (r.reminder_time IS NULL OR r.reminder_time = ?)
+AND COALESCE(r.last_reminded, '') != ?
             """,
-            (slot_time, today_str),
+            (slot_time, slot_time, today_str),
         )
     else:
         cursor.execute(
@@ -313,6 +318,7 @@ def get_stats() -> dict:
 
 # ── Image helper ──────────────────────────────────────────────────────────────
 
+
 def compress_image(path: str) -> io.BytesIO:
     img = Image.open(path).convert("RGB")
     img.thumbnail((1280, 1280), Image.LANCZOS)
@@ -323,6 +329,7 @@ def compress_image(path: str) -> io.BytesIO:
 
 
 # ── Shared draw logic ─────────────────────────────────────────────────────────
+
 
 async def do_draw_card(message, user_id: int):
     existing_card = get_user_card_today(user_id)
@@ -377,6 +384,7 @@ async def do_draw_card(message, user_id: int):
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.args and context.args[0] == "draw":
         await do_draw_card(update.message, update.effective_user.id)
@@ -385,7 +393,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    mage_image = os.path.join(os.path.dirname(__file__), "images", "the Forest Wizard.png")
+    mage_image = os.path.join(
+        os.path.dirname(__file__), "images", "the Forest Wizard.png"
+    )
     if os.path.exists(mage_image):
         buf = compress_image(mage_image)
         await update.message.reply_photo(
@@ -399,7 +409,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    await update.message.reply_text(f"Твой Telegram ID: `{user_id}`", parse_mode="Markdown")
+    await update.message.reply_text(
+        f"Твой Telegram ID: `{user_id}`", parse_mode="Markdown"
+    )
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -415,12 +427,13 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     week_lines = []
     for d, count in s["week"].items():
         marker = " ◀ сегодня" if d == today else ""
-        week_lines.append(f"  {day_names[d.weekday()]} {d.strftime('%d.%m')}: {count}{marker}")
+        week_lines.append(
+            f"  {day_names[d.weekday()]} {d.strftime('%d.%m')}: {count}{marker}"
+        )
     week_text = "\n".join(week_lines)
 
     reminder_lines = "\n".join(
-        f"  • {t} — {s['reminder_by_time'][t]} чел."
-        for _, t in REMINDER_TIMES
+        f"  • {t} — {s['reminder_by_time'][t]} чел." for _, t in REMINDER_TIMES
     )
 
     text = (
@@ -442,7 +455,9 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("У тебя нет доступа к этой команде.")
         return
     delete_user_record(ADMIN_ID)
-    await update.message.reply_text("✅ Готово. Лимит сброшен — ты можешь вытянуть карту снова.")
+    await update.message.reply_text(
+        "✅ Готово. Лимит сброшен — ты можешь вытянуть карту снова."
+    )
 
 
 async def reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -455,12 +470,18 @@ async def reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         status = "🔕 Напоминание выключено"
 
-    keyboard = InlineKeyboardMarkup([
+    keyboard = InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("🔔 Включить напоминание", callback_data="reminder_enable"),
-            InlineKeyboardButton("🔕 Выключить напоминание", callback_data="reminder_disable"),
+            [
+                InlineKeyboardButton(
+                    "🔔 Включить напоминание", callback_data="reminder_enable"
+                ),
+                InlineKeyboardButton(
+                    "🔕 Выключить напоминание", callback_data="reminder_disable"
+                ),
+            ]
         ]
-    ])
+    )
 
     await update.message.reply_text(
         f"{status}\n\nВыбери действие:",
@@ -495,9 +516,11 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_reply_markup(reply_markup=None)
 
     elif data.startswith("rtime_"):
-        chosen_time = data[len("rtime_"):]
+        chosen_time = data[len("rtime_") :]
         set_reminder(user_id, chosen_time)
-        label = next((lbl for lbl, t in REMINDER_TIMES if t == chosen_time), chosen_time)
+        label = next(
+            (lbl for lbl, t in REMINDER_TIMES if t == chosen_time), chosen_time
+        )
         await query.message.edit_text(
             f"✅ Напоминание установлено на *{chosen_time}* {label.split()[0]}\n\n"
             f"Каждый день в это время Лесной Маг напомнит тебе о карте дня. 🌿",
@@ -516,9 +539,9 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Moscow time slots → UTC offsets (MSK = UTC+3)
 # slot_time, utc_hour, utc_minute, include_no_preference
 REMINDER_SLOTS = [
-    ("08:00",  5, 0, False),
-    ("10:00",  7, 0, False),
-    ("12:00",  9, 0, True),   # also catches users with no preference
+    ("08:00", 5, 0, False),
+    ("10:00", 7, 0, False),
+    ("12:00", 9, 0, True),  # also catches users with no preference
     ("18:00", 15, 0, False),
     ("20:00", 17, 0, False),
     ("22:00", 19, 0, False),
@@ -557,15 +580,19 @@ async def send_reminders_for_slot(context: ContextTypes.DEFAULT_TYPE):
 
 # ── Bot commands menu ─────────────────────────────────────────────────────────
 
+
 async def post_init(application: Application):
-    await application.bot.set_my_commands([
-        BotCommand("start", "Начать — получить карту дня"),
-        BotCommand("reminder", "Настроить ежедневное напоминание"),
-        BotCommand("stats", "Статистика (только для админа)"),
-    ])
+    await application.bot.set_my_commands(
+        [
+            BotCommand("start", "Начать — получить карту дня"),
+            BotCommand("reminder", "Настроить ежедневное напоминание"),
+            BotCommand("stats", "Статистика (только для админа)"),
+        ]
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
+
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
