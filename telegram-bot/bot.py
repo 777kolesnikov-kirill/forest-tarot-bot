@@ -28,6 +28,7 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "tarot.db")
 
 BOT_USERNAME = "lesnaya_koloda_mudrosti_bot"
 BOT_LINK = f"https://t.me/{BOT_USERNAME}"
+BOT_DRAW_LINK = f"https://t.me/{BOT_USERNAME}?start=draw"
 
 WELCOME_TEXT = (
     "Из глубины леса доносится шелест листьев...\n"
@@ -321,9 +322,66 @@ def compress_image(path: str) -> io.BytesIO:
     return buf
 
 
+# ── Shared draw logic ─────────────────────────────────────────────────────────
+
+async def do_draw_card(message, user_id: int):
+    existing_card = get_user_card_today(user_id)
+    if existing_card is not None:
+        await message.reply_text(ALREADY_GOT_TEXT)
+        return
+
+    card_index = random.randint(0, len(CARDS) - 1)
+    card = CARDS[card_index]
+
+    card_text = f"*{card['name']}*\n\n{card['description']}"
+
+    share_text = (
+        f"Сегодня Лесной Маг дал мне карту «{card['name']}» 🌿 "
+        f"Получи своё послание от леса: t.me/{BOT_USERNAME}"
+    )
+    share_url = (
+        "https://t.me/share/url"
+        f"?url=https%3A%2F%2Ft.me%2F{BOT_USERNAME}"
+        f"&text={quote(share_text)}"
+    )
+    share_keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🌿 Поделиться с другом", url=share_url)]]
+    )
+
+    image_path = os.path.join(os.path.dirname(__file__), card["image"])
+    if os.path.exists(image_path):
+        buf = compress_image(image_path)
+        await message.reply_photo(
+            photo=buf,
+            caption=card_text,
+            parse_mode="Markdown",
+            reply_markup=share_keyboard,
+        )
+    else:
+        await message.reply_text(
+            card_text,
+            parse_mode="Markdown",
+            reply_markup=share_keyboard,
+        )
+
+    save_user_card(user_id, card_index)
+
+    row = get_user_reminder(user_id)
+    has_reminder = row and row[0] == 1
+    if not has_reminder:
+        await message.reply_text(
+            REMINDER_PROMPT_TEXT,
+            reply_markup=build_reminder_time_keyboard(),
+        )
+
+
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args and context.args[0] == "draw":
+        await do_draw_card(update.message, update.effective_user.id)
+        return
+
     keyboard = [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -450,57 +508,7 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    user_id = query.from_user.id
-
-    existing_card = get_user_card_today(user_id)
-    if existing_card is not None:
-        await query.message.reply_text(ALREADY_GOT_TEXT)
-        return
-
-    card_index = random.randint(0, len(CARDS) - 1)
-    card = CARDS[card_index]
-
-    card_text = f"*{card['name']}*\n\n{card['description']}"
-
-    share_text = (
-        f"Сегодня Лесной Маг дал мне карту «{card['name']}» 🌿 "
-        f"Получи своё послание от леса: t.me/{BOT_USERNAME}"
-    )
-    share_url = (
-        "https://t.me/share/url"
-        f"?url=https%3A%2F%2Ft.me%2F{BOT_USERNAME}"
-        f"&text={quote(share_text)}"
-    )
-    share_keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🌿 Поделиться с другом", url=share_url)]]
-    )
-
-    image_path = os.path.join(os.path.dirname(__file__), card["image"])
-    if os.path.exists(image_path):
-        buf = compress_image(image_path)
-        await query.message.reply_photo(
-            photo=buf,
-            caption=card_text,
-            parse_mode="Markdown",
-            reply_markup=share_keyboard,
-        )
-    else:
-        await query.message.reply_text(
-            card_text,
-            parse_mode="Markdown",
-            reply_markup=share_keyboard,
-        )
-
-    save_user_card(user_id, card_index)
-
-    row = get_user_reminder(user_id)
-    has_reminder = row and row[0] == 1
-    if not has_reminder:
-        await query.message.reply_text(
-            REMINDER_PROMPT_TEXT,
-            reply_markup=build_reminder_time_keyboard(),
-        )
+    await do_draw_card(query.message, query.from_user.id)
 
 
 # ── Scheduler jobs ────────────────────────────────────────────────────────────
@@ -528,7 +536,7 @@ async def send_reminders_for_slot(context: ContextTypes.DEFAULT_TYPE):
         return
 
     draw_keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(BUTTON_TEXT, url=BOT_LINK)]]
+        [[InlineKeyboardButton(BUTTON_TEXT, url=BOT_DRAW_LINK)]]
     )
 
     sent = 0

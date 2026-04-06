@@ -6,7 +6,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "tarot.db")
-BOT_LINK = "https://t.me/lesnaya_koloda_mudrosti_bot"
+BOT_DRAW_LINK = "https://t.me/lesnaya_koloda_mudrosti_bot?start=draw"
 
 MESSAGE_TEXT = (
     "🌿 Лесной Маг скучает по тебе...\n\n"
@@ -26,7 +26,7 @@ REMINDER_TIMES = [
 
 
 def build_keyboard() -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton("✨ Вытянуть карту", url=BOT_LINK)]]
+    rows = [[InlineKeyboardButton("✨ Вытянуть карту", url=BOT_DRAW_LINK)]]
     row = []
     for label, t in REMINDER_TIMES:
         row.append(InlineKeyboardButton(label, callback_data=f"rtime_{t}"))
