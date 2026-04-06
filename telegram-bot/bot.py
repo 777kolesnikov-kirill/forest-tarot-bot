@@ -3,7 +3,7 @@ import os
 import random
 import sqlite3
 import logging
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, time as dt_time, timezone
 from urllib.parse import quote
 
 from PIL import Image
@@ -206,18 +206,34 @@ def get_user_reminder(user_id: int):
     return row
 
 
-def get_reminders_due(current_time_str: str, today_str: str):
+def get_users_for_slot(slot_time: str, include_no_preference: bool, today_str: str) -> list:
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT user_id FROM reminders
-        WHERE enabled = 1
-          AND reminder_time = ?
-          AND (last_reminded IS NULL OR last_reminded != ?)
-        """,
-        (current_time_str, today_str),
-    )
+    if include_no_preference:
+        cursor.execute(
+            """
+            SELECT DISTINCT dh.user_id
+            FROM draw_history dh
+            LEFT JOIN reminders r ON dh.user_id = r.user_id
+            WHERE (
+                (r.enabled = 1 AND r.reminder_time = ?)
+                OR (r.user_id IS NULL)
+                OR (r.enabled = 0)
+            )
+            AND COALESCE(r.last_reminded, '') != ?
+            """,
+            (slot_time, today_str),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT user_id FROM reminders
+            WHERE enabled = 1
+              AND reminder_time = ?
+              AND (last_reminded IS NULL OR last_reminded != ?)
+            """,
+            (slot_time, today_str),
+        )
     rows = cursor.fetchall()
     conn.close()
     return [r[0] for r in rows]
@@ -227,8 +243,12 @@ def mark_reminder_sent(user_id: int, today_str: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE reminders SET last_reminded = ? WHERE user_id = ?",
-        (today_str, user_id),
+        """
+        INSERT INTO reminders (user_id, enabled, last_reminded)
+        VALUES (?, 0, ?)
+        ON CONFLICT(user_id) DO UPDATE SET last_reminded = excluded.last_reminded
+        """,
+        (user_id, today_str),
     )
     conn.commit()
     conn.close()
@@ -483,21 +503,36 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 
-# ── Scheduler job ─────────────────────────────────────────────────────────────
+# ── Scheduler jobs ────────────────────────────────────────────────────────────
 
-async def send_reminders_job(context: ContextTypes.DEFAULT_TYPE):
-    current_time = datetime.now().strftime("%H:%M")
+# Moscow time slots → UTC offsets (MSK = UTC+3)
+# slot_time, utc_hour, utc_minute, include_no_preference
+REMINDER_SLOTS = [
+    ("08:00",  5, 0, False),
+    ("10:00",  7, 0, False),
+    ("12:00",  9, 0, True),   # also catches users with no preference
+    ("18:00", 15, 0, False),
+    ("20:00", 17, 0, False),
+    ("22:00", 19, 0, False),
+]
+
+
+async def send_reminders_for_slot(context: ContextTypes.DEFAULT_TYPE):
+    slot_time, include_no_preference = context.job.data
     today = get_today_str()
 
-    due_users = get_reminders_due(current_time, today)
-    if not due_users:
+    user_ids = get_users_for_slot(slot_time, include_no_preference, today)
+
+    if not user_ids:
+        logger.info(f"Reminder job {slot_time}: no users to notify")
         return
 
     draw_keyboard = InlineKeyboardMarkup(
         [[InlineKeyboardButton(BUTTON_TEXT, url=BOT_LINK)]]
     )
 
-    for user_id in due_users:
+    sent = 0
+    for user_id in user_ids:
         try:
             await context.bot.send_message(
                 chat_id=user_id,
@@ -505,9 +540,11 @@ async def send_reminders_job(context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=draw_keyboard,
             )
             mark_reminder_sent(user_id, today)
-            logger.info(f"Reminder sent to user {user_id} at {current_time}")
-        except Exception as e:
-            logger.warning(f"Failed to send reminder to {user_id}: {e}")
+            sent += 1
+        except Exception:
+            pass  # user blocked the bot or other error — skip silently
+
+    logger.info(f"Sent reminder to {sent} users at {slot_time}")
 
 
 # ── Bot commands menu ─────────────────────────────────────────────────────────
@@ -540,7 +577,14 @@ def main():
     app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^reminder_"))
     app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rtime_"))
 
-    app.job_queue.run_repeating(send_reminders_job, interval=60, first=10)
+    utc = timezone.utc
+    for slot_time, utc_hour, utc_minute, include_no_pref in REMINDER_SLOTS:
+        app.job_queue.run_daily(
+            send_reminders_for_slot,
+            time=dt_time(utc_hour, utc_minute, tzinfo=utc),
+            data=(slot_time, include_no_pref),
+            name=f"reminder_{slot_time}",
+        )
 
     logger.info("Bot is starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
