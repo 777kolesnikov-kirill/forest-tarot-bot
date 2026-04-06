@@ -585,14 +585,15 @@ def main():
     app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^reminder_"))
     app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rtime_"))
 
-    utc = timezone.utc
-    for slot_time, utc_hour, utc_minute, include_no_pref in REMINDER_SLOTS:
-        app.job_queue.run_daily(
-            send_reminders_for_slot,
-            time=dt_time(utc_hour, utc_minute, tzinfo=utc),
-            data=(slot_time, include_no_pref),
-            name=f"reminder_{slot_time}",
-        )
+    # Automatic reminder jobs are disabled. Re-enable by uncommenting the block below.
+    # utc = timezone.utc
+    # for slot_time, utc_hour, utc_minute, include_no_pref in REMINDER_SLOTS:
+    #     app.job_queue.run_daily(
+    #         send_reminders_for_slot,
+    #         time=dt_time(utc_hour, utc_minute, tzinfo=utc),
+    #         data=(slot_time, include_no_pref),
+    #         name=f"reminder_{slot_time}",
+    #     )
 
     logger.info("Bot is starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
