@@ -11,8 +11,32 @@ BOT_LINK = "https://t.me/lesnaya_koloda_mudrosti_bot"
 MESSAGE_TEXT = (
     "🌿 Лесной Маг скучает по тебе...\n\n"
     "Давно не заглядывал в лес? Новая карта дня уже ждёт тебя! "
-    "Загляни и узнай послание леса 🍃✨"
+    "Загляни и узнай послание леса 🍃✨\n\n"
+    "🔔 Хочешь получать напоминание каждый день?"
 )
+
+REMINDER_TIMES = [
+    ("🌅 08:00", "08:00"),
+    ("☀️ 10:00", "10:00"),
+    ("🌞 12:00", "12:00"),
+    ("🌆 18:00", "18:00"),
+    ("🌙 20:00", "20:00"),
+    ("🌛 22:00", "22:00"),
+]
+
+
+def build_keyboard() -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton("✨ Вытянуть карту", url=BOT_LINK)]]
+    row = []
+    for label, t in REMINDER_TIMES:
+        row.append(InlineKeyboardButton(label, callback_data=f"rtime_{t}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🚫 Нет, спасибо", callback_data="reminder_no")])
+    return InlineKeyboardMarkup(rows)
 
 
 def get_all_user_ids():
@@ -32,9 +56,7 @@ async def broadcast():
     user_ids = get_all_user_ids()
     print(f"Found {len(user_ids)} users to notify.")
 
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("✨ Вытянуть карту", url=BOT_LINK)]]
-    )
+    keyboard = build_keyboard()
 
     app = Application.builder().token(token).build()
     async with app:

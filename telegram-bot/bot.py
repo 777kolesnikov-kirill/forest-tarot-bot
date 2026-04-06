@@ -52,6 +52,22 @@ REMINDER_TIMES = [
     ("🌛 22:00", "22:00"),
 ]
 
+REMINDER_PROMPT_TEXT = "🔔 Хочешь получать напоминание каждый день?"
+
+
+def build_reminder_time_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    row = []
+    for label, t in REMINDER_TIMES:
+        row.append(InlineKeyboardButton(label, callback_data=f"rtime_{t}"))
+        if len(row) == 3:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([InlineKeyboardButton("🚫 Нет, спасибо", callback_data="reminder_no")])
+    return InlineKeyboardMarkup(rows)
+
 REMINDER_TEXT = (
     "🌿 Лесной Маг зовёт тебя...\n"
     "Новая карта дня уже ждёт.\n"
@@ -376,6 +392,9 @@ async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🔕 Напоминание отключено. Лес будет молчать.",
         )
 
+    elif data == "reminder_no":
+        await query.message.edit_reply_markup(reply_markup=None)
+
     elif data.startswith("rtime_"):
         chosen_time = data[len("rtime_"):]
         set_reminder(user_id, chosen_time)
@@ -433,6 +452,14 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
     save_user_card(user_id, card_index)
+
+    row = get_user_reminder(user_id)
+    has_reminder = row and row[0] == 1
+    if not has_reminder:
+        await query.message.reply_text(
+            REMINDER_PROMPT_TEXT,
+            reply_markup=build_reminder_time_keyboard(),
+        )
 
 
 # ── Scheduler job ─────────────────────────────────────────────────────────────
