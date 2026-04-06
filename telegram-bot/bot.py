@@ -3,12 +3,12 @@ import os
 import random
 import sqlite3
 import logging
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from urllib.parse import quote
 
 from PIL import Image
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "tarot.db")
 
+BOT_USERNAME = "lesnaya_koloda_mudrosti_bot"
+BOT_LINK = f"https://t.me/{BOT_USERNAME}"
+
 WELCOME_TEXT = (
     "Из глубины леса доносится шелест листьев...\n"
     "А, вот и ты. Я ждал.\n"
@@ -40,6 +43,23 @@ BUTTON_TEXT = "✨ Вытянуть карту"
 
 ADMIN_ID = 186890590
 
+REMINDER_TIMES = [
+    ("🌅 08:00", "08:00"),
+    ("☀️ 10:00", "10:00"),
+    ("🌞 12:00", "12:00"),
+    ("🌆 18:00", "18:00"),
+    ("🌙 20:00", "20:00"),
+    ("🌛 22:00", "22:00"),
+]
+
+REMINDER_TEXT = (
+    "🌿 Лесной Маг зовёт тебя...\n"
+    "Новая карта дня уже ждёт.\n"
+    "Загляни в лес 🍃"
+)
+
+
+# ── Database ──────────────────────────────────────────────────────────────────
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -66,6 +86,16 @@ def init_db():
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_draw_date ON draw_history (draw_date)"
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reminders (
+            user_id INTEGER PRIMARY KEY,
+            enabled INTEGER NOT NULL DEFAULT 0,
+            reminder_time TEXT,
+            last_reminded TEXT
+        )
+        """
     )
     conn.commit()
     conn.close()
@@ -122,6 +152,72 @@ def save_user_card(user_id: int, card_index: int):
     conn.close()
 
 
+def set_reminder(user_id: int, reminder_time: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO reminders (user_id, enabled, reminder_time)
+        VALUES (?, 1, ?)
+        ON CONFLICT(user_id) DO UPDATE SET enabled = 1, reminder_time = excluded.reminder_time
+        """,
+        (user_id, reminder_time),
+    )
+    conn.commit()
+    conn.close()
+
+
+def disable_reminder(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE reminders SET enabled = 0 WHERE user_id = ?",
+        (user_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_user_reminder(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT enabled, reminder_time FROM reminders WHERE user_id = ?",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+
+def get_reminders_due(current_time_str: str, today_str: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT user_id FROM reminders
+        WHERE enabled = 1
+          AND reminder_time = ?
+          AND (last_reminded IS NULL OR last_reminded != ?)
+        """,
+        (current_time_str, today_str),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def mark_reminder_sent(user_id: int, today_str: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE reminders SET last_reminded = ? WHERE user_id = ?",
+        (today_str, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def get_stats() -> dict:
     today = date.today()
     today_str = today.isoformat()
@@ -165,17 +261,26 @@ def get_stats() -> dict:
     }
 
 
+# ── Image helper ──────────────────────────────────────────────────────────────
+
+def compress_image(path: str) -> io.BytesIO:
+    img = Image.open(path).convert("RGB")
+    img.thumbnail((1280, 1280), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    buf.seek(0)
+    return buf
+
+
+# ── Handlers ──────────────────────────────────────────────────────────────────
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     mage_image = os.path.join(os.path.dirname(__file__), "images", "the Forest Wizard.png")
     if os.path.exists(mage_image):
-        img = Image.open(mage_image).convert("RGB")
-        img.thumbnail((1280, 1280), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
-        buf.seek(0)
+        buf = compress_image(mage_image)
         await update.message.reply_photo(
             photo=buf,
             caption=WELCOME_TEXT,
@@ -225,6 +330,63 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Готово. Лимит сброшен — ты можешь вытянуть карту снова.")
 
 
+async def reminder_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    row = get_user_reminder(update.effective_user.id)
+    enabled = row and row[0] == 1
+    reminder_time = row[1] if row else None
+
+    if enabled and reminder_time:
+        status = f"🔔 Напоминание включено — каждый день в *{reminder_time}*"
+    else:
+        status = "🔕 Напоминание выключено"
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🔔 Включить напоминание", callback_data="reminder_enable"),
+            InlineKeyboardButton("🔕 Выключить напоминание", callback_data="reminder_disable"),
+        ]
+    ])
+
+    await update.message.reply_text(
+        f"{status}\n\nВыбери действие:",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
+async def reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "reminder_enable":
+        time_buttons = [
+            [InlineKeyboardButton(label, callback_data=f"rtime_{t}")]
+            for label, t in REMINDER_TIMES
+        ]
+        await query.message.edit_text(
+            "В какое время напоминать?",
+            reply_markup=InlineKeyboardMarkup(time_buttons),
+        )
+
+    elif data == "reminder_disable":
+        disable_reminder(user_id)
+        await query.message.edit_text(
+            "🔕 Напоминание отключено. Лес будет молчать.",
+        )
+
+    elif data.startswith("rtime_"):
+        chosen_time = data[len("rtime_"):]
+        set_reminder(user_id, chosen_time)
+        label = next((lbl for lbl, t in REMINDER_TIMES if t == chosen_time), chosen_time)
+        await query.message.edit_text(
+            f"✅ Напоминание установлено на *{chosen_time}* {label.split()[0]}\n\n"
+            f"Каждый день в это время Лесной Маг напомнит тебе о карте дня. 🌿",
+            parse_mode="Markdown",
+        )
+
+
 async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -243,11 +405,11 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     share_text = (
         f"Сегодня Лесной Маг дал мне карту «{card['name']}» 🌿 "
-        f"Получи своё послание от леса: t.me/lesnaya_koloda_mudrosti_bot"
+        f"Получи своё послание от леса: t.me/{BOT_USERNAME}"
     )
     share_url = (
         "https://t.me/share/url"
-        f"?url=https%3A%2F%2Ft.me%2Flesnaya_koloda_mudrosti_bot"
+        f"?url=https%3A%2F%2Ft.me%2F{BOT_USERNAME}"
         f"&text={quote(share_text)}"
     )
     share_keyboard = InlineKeyboardMarkup(
@@ -256,11 +418,7 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     image_path = os.path.join(os.path.dirname(__file__), card["image"])
     if os.path.exists(image_path):
-        img = Image.open(image_path).convert("RGB")
-        img.thumbnail((1280, 1280), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
-        buf.seek(0)
+        buf = compress_image(image_path)
         await query.message.reply_photo(
             photo=buf,
             caption=card_text,
@@ -277,6 +435,45 @@ async def draw_card_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     save_user_card(user_id, card_index)
 
 
+# ── Scheduler job ─────────────────────────────────────────────────────────────
+
+async def send_reminders_job(context: ContextTypes.DEFAULT_TYPE):
+    current_time = datetime.now().strftime("%H:%M")
+    today = get_today_str()
+
+    due_users = get_reminders_due(current_time, today)
+    if not due_users:
+        return
+
+    draw_keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton(BUTTON_TEXT, url=BOT_LINK)]]
+    )
+
+    for user_id in due_users:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=REMINDER_TEXT,
+                reply_markup=draw_keyboard,
+            )
+            mark_reminder_sent(user_id, today)
+            logger.info(f"Reminder sent to user {user_id} at {current_time}")
+        except Exception as e:
+            logger.warning(f"Failed to send reminder to {user_id}: {e}")
+
+
+# ── Bot commands menu ─────────────────────────────────────────────────────────
+
+async def post_init(application: Application):
+    await application.bot.set_my_commands([
+        BotCommand("start", "Начать — получить карту дня"),
+        BotCommand("reminder", "Настроить ежедневное напоминание"),
+        BotCommand("stats", "Статистика (только для админа)"),
+    ])
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
@@ -284,12 +481,18 @@ def main():
 
     init_db()
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(post_init).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("reminder", reminder_command))
     app.add_handler(CallbackQueryHandler(draw_card_callback, pattern="^draw_card$"))
+    app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^reminder_"))
+    app.add_handler(CallbackQueryHandler(reminder_callback, pattern="^rtime_"))
+
+    app.job_queue.run_repeating(send_reminders_job, interval=60, first=10)
 
     logger.info("Bot is starting...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
