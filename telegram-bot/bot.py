@@ -266,6 +266,17 @@ def get_stats() -> dict:
     cursor.execute("SELECT COUNT(DISTINCT user_id) FROM draw_history")
     unique_users = cursor.fetchone()[0]
 
+    cursor.execute("SELECT COUNT(*) FROM reminders WHERE enabled = 1")
+    reminders_enabled = cursor.fetchone()[0]
+
+    reminder_by_time = {}
+    for _, t in REMINDER_TIMES:
+        cursor.execute(
+            "SELECT COUNT(*) FROM reminders WHERE enabled = 1 AND reminder_time = ?",
+            (t,),
+        )
+        reminder_by_time[t] = cursor.fetchone()[0]
+
     conn.close()
 
     return {
@@ -274,6 +285,8 @@ def get_stats() -> dict:
         "month": month_count,
         "unique_users": unique_users,
         "today_date": today,
+        "reminders_enabled": reminders_enabled,
+        "reminder_by_time": reminder_by_time,
     }
 
 
@@ -327,12 +340,20 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         week_lines.append(f"  {day_names[d.weekday()]} {d.strftime('%d.%m')}: {count}{marker}")
     week_text = "\n".join(week_lines)
 
+    reminder_lines = "\n".join(
+        f"  • {t} — {s['reminder_by_time'][t]} чел."
+        for _, t in REMINDER_TIMES
+    )
+
     text = (
         f"📊 *Статистика Лесного Мага*\n\n"
         f"📅 *Сегодня* ({today.strftime('%d.%m.%Y')}): {s['today']} карт\n\n"
         f"📆 *Эта неделя:*\n{week_text}\n\n"
         f"🗓 *Этот месяц:* {s['month']} карт\n\n"
-        f"👥 *Всего уникальных пользователей:* {s['unique_users']}"
+        f"👥 *Всего уникальных пользователей:* {s['unique_users']}\n\n"
+        f"🔔 *Напоминания:*\n"
+        f"  • Включено: {s['reminders_enabled']} пользователей\n"
+        f"{reminder_lines}"
     )
 
     await update.message.reply_text(text, parse_mode="Markdown")
