@@ -26,7 +26,7 @@ REMINDER_TIMES = [
 
 
 def build_keyboard() -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton("✨ Вытянуть карту", url=BOT_DRAW_LINK)]]
+    rows = [[InlineKeyboardButton("✨ Вытянуть карту", callback_data="draw_card")]]
     row = []
     for label, t in REMINDER_TIMES:
         row.append(InlineKeyboardButton(label, callback_data=f"rtime_{t}"))

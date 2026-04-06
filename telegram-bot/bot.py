@@ -536,7 +536,7 @@ async def send_reminders_for_slot(context: ContextTypes.DEFAULT_TYPE):
         return
 
     draw_keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(BUTTON_TEXT, url=BOT_DRAW_LINK)]]
+        [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
     )
 
     sent = 0
