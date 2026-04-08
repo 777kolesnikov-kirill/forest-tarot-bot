@@ -9,10 +9,9 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "tarot.db")
 BOT_DRAW_LINK = "https://t.me/lesnaya_koloda_mudrosti_bot?start=draw"
 
 MESSAGE_TEXT = (
-    "🌿 Лесной Маг скучает по тебе...\n\n"
-    "Давно не заглядывал в лес? Новая карта дня уже ждёт тебя! "
-    "Загляни и узнай послание леса 🍃✨\n\n"
-    "🔔 Хочешь получать напоминание каждый день?"
+    "🌿 Привет! Я обновился.\n\n"
+    "Теперь я работаю 24/7 — даже ночью и в выходные. "
+    "Можешь вытянуть карту в любой момент 🍃✨"
 )
 
 REMINDER_TIMES = [
@@ -27,15 +26,6 @@ REMINDER_TIMES = [
 
 def build_keyboard() -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton("✨ Вытянуть карту", callback_data="draw_card")]]
-    row = []
-    for label, t in REMINDER_TIMES:
-        row.append(InlineKeyboardButton(label, callback_data=f"rtime_{t}"))
-        if len(row) == 3:
-            rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
-    rows.append([InlineKeyboardButton("🚫 Нет, спасибо", callback_data="reminder_no")])
     return InlineKeyboardMarkup(rows)
 
 
