@@ -123,6 +123,39 @@ def init_db():
         )
         """
     )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS seen_wizard (
+            user_id INTEGER PRIMARY KEY
+        )
+        """
+    )
+    # Mark all existing users as having seen the wizard already
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO seen_wizard (user_id)
+        SELECT DISTINCT user_id FROM draw_history
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def has_seen_wizard(user_id: int) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM seen_wizard WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone() is not None
+    conn.close()
+    return result
+
+
+def mark_seen_wizard(user_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR IGNORE INTO seen_wizard (user_id) VALUES (?)", (user_id,)
+    )
     conn.commit()
     conn.close()
 
@@ -326,7 +359,12 @@ def compress_image(path: str) -> io.BytesIO:
 async def do_draw_card(message, user_id: int):
     existing_card = get_user_card_today(user_id)
     if existing_card is not None:
-        await message.reply_text(ALREADY_GOT_TEXT)
+        mushroom = os.path.join(os.path.dirname(__file__), "images", "mushroom.png")
+        if os.path.exists(mushroom):
+            buf = compress_image(mushroom)
+            await message.reply_photo(photo=buf, caption=ALREADY_GOT_TEXT)
+        else:
+            await message.reply_text(ALREADY_GOT_TEXT)
         return
 
     card_index = random.randint(0, len(CARDS) - 1)
@@ -377,19 +415,28 @@ async def do_draw_card(message, user_id: int):
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    user_id = update.effective_user.id
 
-    mage_image = os.path.join(os.path.dirname(__file__), "images", "the Forest Wizard.png")
-    if os.path.exists(mage_image):
-        buf = compress_image(mage_image)
-        await update.message.reply_photo(
-            photo=buf,
-            caption=WELCOME_TEXT,
-            reply_markup=reply_markup,
-        )
-    else:
-        await update.message.reply_text(WELCOME_TEXT, reply_markup=reply_markup)
+    # Case 1: first-ever visit — show wizard once, then never again
+    if not has_seen_wizard(user_id):
+        mark_seen_wizard(user_id)
+        keyboard = [[InlineKeyboardButton(BUTTON_TEXT, callback_data="draw_card")]]
+        mage_image = os.path.join(os.path.dirname(__file__), "images", "the Forest Wizard.png")
+        if os.path.exists(mage_image):
+            buf = compress_image(mage_image)
+            await update.message.reply_photo(
+                photo=buf,
+                caption=WELCOME_TEXT,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+        else:
+            await update.message.reply_text(
+                WELCOME_TEXT, reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        return
+
+    # Case 2 & 3: returning user — draw card (do_draw_card handles already-drew check)
+    await do_draw_card(update.message, user_id)
 
 
 async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
